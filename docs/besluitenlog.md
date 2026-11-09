@@ -30,3 +30,26 @@ Labels: **bevestigd** (door Lars) · **voorstel** (wacht op bevestiging) · **aa
 | 24 | Lokale accounttoevoeging | Fase 1: persoon maakt zelf een lokaal account, eigenaar voegt het toe. Fase 3 vervangt dit door uitnodigingen | voorstel | 2026-11-09 |
 | 25 | Stagiair-zicht | Stagiair ziet projectcontext van projecten met projectlidmaatschap, maar alleen eigen toegewezen/aangemaakte taken; wijzigt alleen status | voorstel (afgeleid uit rechtenmatrix) | 2026-11-09 |
 | 26 | Versies in fase 1 | Versie = link/notitie; geen upload tot fase 3 | aanname | 2026-11-09 |
+
+## Volledige app (masterprompt van 9-11-2026)
+
+Lars vroeg op 9-11-2026 om de fases over te slaan en de volledige app in één keer te bouwen, op basis van een nieuwe masterprompt. Waar die masterprompt afwijkt van eerdere besluiten, staat dat hieronder. Een **aanname** blijft een aanname tot Lars hem bevestigt.
+
+| # | Onderwerp | Besluit | Label | Datum |
+|---|---|---|---|---|
+| 27 | Werkwijze | Fases overslaan; volledige app in één oplevering. Werkt nog steeds alleen lokaal; online zetten vraagt accounts en akkoord (zie 40) | bevestigd (opdracht Lars) | 2026-11-09 |
+| 28 | Productnaam | Blijft **Regie** (masterprompt noemt "Productieplanner" als werktitel die Lars mag wijzigen; logo's in `assets/brand/` zijn leidend) | aanname | 2026-11-09 |
+| 29 | Nummeruitgifte | Vervangt #8: Regie geeft nummers uit (hoogste + 1 per bedrijf per jaar), met vrije nummers, eigen code en weigering van bestaande nummers. Uitgifte transactioneel met lock per bedrijf+jaar en unieke index | bevestigd (masterprompt §5) | 2026-11-09 |
+| 30 | Nummerformaat | `PREFIX + JJ + 3 cijfers` (SB, MMS), instelbaar per bedrijf. Afwijkende historische nummers worden ongewijzigd geïmporteerd en gemarkeerd | aanname (A3) | 2026-11-09 |
+| 31 | Faselogica | Vervangt #15: fases gaan **automatisch** volgens §6, met handmatige correctie (reden verplicht) en "Automatiek hervatten" | bevestigd (masterprompt §6) | 2026-11-09 |
+| 32 | Rechten | Vervangt #25 en het projectlidmaatschap uit fase 1: alle interne rollen zien alle projecten; stagiair mag projecten en taken bewerken, maar niet verwijderen, goedkeuren, exporteren of uitnodigen; financiële mijlpalen alleen voor eigenaar/admin/PM | bevestigd (masterprompt §3) | 2026-11-09 |
+| 33 | Klantportaal | Vervangt #6 voor klanten: geen klanttoegang in deze scope (masterprompt §2). Freelancer-toegang is wel gebouwd | bevestigd (masterprompt) | 2026-11-09 |
+| 34 | Back-up per draaidag | Template-taak "back-up SSD + HDD" is gebouwd als twee vinkjes op de draaidag zelf (één bron van waarheid voor de faselogica), niet als aparte taak | voorstel | 2026-11-09 |
+| 35 | T2 en T3 inhoud | Samenstelling T2 (welke T1-taken mee) en T3 (aantal feedbackrondes leeg gelaten) zijn een voorstel. "Opvolging volgende productie" heeft geen automatische deadline (oplevering is geen anker) | voorstel | 2026-11-09 |
+| 36 | Uitnodigen | Eenmalige link (7 dagen), die de eigenaar zelf doorstuurt. Automatisch mailen vraagt een afzenderdomein en hosting (zie #20) | voorstel | 2026-11-09 |
+| 37 | Tweestapsverificatie | TOTP via Supabase Auth; wie een tweede factor heeft, krijgt in de database alleen toegang met aal2. Passkeys als tweede factor: **ONBEKEND** of beschikbaar in de gekozen versie, niet gebruikt | voorstel | 2026-11-09 |
+| 38 | API voor koppelingen | `POST /rest/v1/rpc/api_events` en `/rest/v1/rpc/api_reserve_number` met header `x-regie-key` (masterprompt noemde `/api/v1/...`; zelfde functie, geen extra dienst nodig) | voorstel | 2026-11-09 |
+| 39 | Dropbox, Moneybird | Niet gebouwd: API's niet te verifiëren vanuit deze sessie (netwerk geblokkeerd) en geen accounts. In de app staat "koppeling niet actief", zonder knoppen | open | 2026-11-09 |
+| 40 | Online zetten, apps in stores, push | Niet gedaan: vraagt accounts op naam van Lars (Supabase, Cloudflare, Apple, Google) en akkoord over kosten. Push vraagt hosting met HTTPS | open | 2026-11-09 |
+| 41 | Audit-log | Zichtbaar voor eigenaar, admin en PM (bevat oude/nieuwe waarden, ook financiële) | voorstel | 2026-11-09 |
+| 42 | Bewaartermijn audit | Minimaal 7 jaar (masterprompt §13); er wordt niets automatisch opgeschoond | aanname (Lars bevestigt) | 2026-11-09 |

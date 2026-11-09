@@ -68,7 +68,7 @@ export default function App() {
 
   const internal = isInternal(ctx.role);
   return (
-    <LiveProvider enabled={true}>
+    <LiveProvider enabled={import.meta.env.VITE_REALTIME !== 'uit'}>
       <OfflineSnapshot />
       {internal ? <InternalShell /> : <Crew />}
     </LiveProvider>

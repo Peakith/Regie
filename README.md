@@ -2,9 +2,9 @@
 
 # Regie
 
-Zelfstandig projectmanagement voor filmproductie: projecten, projectnummerregister, deliverables met versies en akkoord, draaidagen, inzet van crew en editors. Portalen voor freelancers en klanten volgen in fase 3.
+Projectmanagement voor filmproductie: nummerregister, projecten met automatische fases en mijlpalen, deliverables met versies en goedkeuringen, draaidagen met crew, back-ups en apparatuur, taken en lijsten, templates, dashboard, agenda, meldingen, freelancer-toegang en een API voor eigen tools.
 
-**Status:** fase 1, pilotfundament. Draait **alleen lokaal** op je eigen Mac. Het is nog geen online systeem en nog niet geschikt voor dagelijks gebruik; zie [fase 1-oplevering](docs/fase-1-oplevering.md).
+**Status:** volledige app, **pilot-kandidaat, alleen lokaal**. Nog niet online en nog niet klaar voor dagelijks gebruik (geen automatische back-ups, niet getest op echte telefoons). Zie het [testverslag](docs/testverslag.md).
 
 ## Lokaal draaien (Mac)
 
@@ -35,11 +35,9 @@ npm run dev
 ```
 
 Open daarna http://127.0.0.1:5173:
-1. Kies **Nieuw account (lokaal)** en maak je account aan.
-2. Richt Regie in; je wordt dan **eigenaar**.
-3. Voor de stagiair: laat diegene op het inlogscherm een account aanmaken. Voeg dat e-mailadres daarna toe via **Instellingen** en geef in het project (tab **Beheer**) toegang.
-
-De databasebeheeromgeving (Supabase Studio) staat op http://127.0.0.1:54323.
+1. Kies **Account aanmaken** en maak je account aan.
+2. Richt Regie in; je wordt dan **eigenaar**. Stel daarna tweestapsverificatie in (Instellingen → Beveiliging).
+3. Voor de stagiair of een freelancer: Instellingen → Gebruikers → **Uitnodigen**. Stuur de link door; de persoon maakt een account aan met dat e-mailadres en opent de link.
 
 Stoppen doe je met `npm run db:stop`; je gegevens blijven bewaard. **Let op:** `npm run db:reset` wist alle lokale gegevens.
 
@@ -53,9 +51,10 @@ De integratietests draaien als echte gebruikers tegen de lokale database (inlogg
 
 ## Documenten
 
-- [Fase 0: scope- en architectuurvoorstel](docs/fase-0-voorstel.md)
-- [Fase 1: oplevering, testverslag en rechten](docs/fase-1-oplevering.md)
-- [Besluitenlog](docs/besluitenlog.md)
+- [Testverslag volledige app](docs/testverslag.md)
+- [Gebruikershandleiding](docs/gebruikershandleiding.md) · [Beheer](docs/beheer.md) · [Integraties](docs/integraties.md) · [Kosten](docs/kosten.md)
+- [Besluitenlog](docs/besluitenlog.md) (ook de "beslissingen" uit de masterprompt)
+- Historie: [fase 0](docs/fase-0-voorstel.md), [fase 1](docs/fase-1-oplevering.md)
 - Werkafspraken voor Claude: [CLAUDE.md](CLAUDE.md)
 
 ## Structuur
