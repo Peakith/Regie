@@ -9,3 +9,9 @@
 - Geen secrets in git, logs of chat; `.env.example` bevat alleen placeholders.
 - Benoem opleverniveaus eerlijk: prototype, pilot of dagelijks gebruik. Demodata is gelabeld en gescheiden.
 - Rapporteer per fase: wat werkt, wat echt is opgeslagen, wat getest is (en hoe), wat niet getest is, open problemen en kosten, gewijzigde bestanden en de terugrolstap.
+
+## Lokale ontwikkeling
+- `npm run db:start` → `npm run env:lokaal` → `npm run dev`; tests: `npm test` (lokale stack moet draaien).
+- In de cloudsessie is public.ecr.aws geblokkeerd: start Supabase met `SUPABASE_INTERNAL_IMAGE_REGISTRY=docker.io`.
+- Testdata hoort in organisaties met `is_test = true` en wordt opgeruimd; raak echte lokale data niet aan.
+- Schemawijzigingen altijd als nieuwe, uitbreidende migratie in `supabase/migrations/`.
