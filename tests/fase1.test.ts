@@ -146,63 +146,7 @@ describe('proef 10 — akkoord geldt voor precies één versie', () => {
   });
 });
 
-describe('proef 8/11/12 — gecontroleerd operationeel afsluiten', () => {
-  it('één afgevinkte taak of verstreken draaidag sluit niets af', async () => {
-    const t = must(await owner.client.from('task').insert({ workspace_id: wsId, project_id: projectId, title: 'Callsheet maken' }).select().single());
-    must(await owner.client.from('task').update({ status: 'klaar' }).eq('id', t.id).select());
-    const p = must(await owner.client.from('project').select('lifecycle').eq('id', projectId).single());
-    expect(p.lifecycle).toBe('actief');
-  });
-
-  it('blokkeert afsluiten met concrete ontbrekende voorwaarden', async () => {
-    must(await owner.client.from('task').insert({ workspace_id: wsId, project_id: projectId, title: 'Freelancers betalen', required_for_close: true }).select());
-    const gates = must(await owner.client.rpc('close_gates', { p_project: projectId })) as { code: string; severity: string }[];
-    const codes = gates.filter((g) => g.severity === 'blokkade').map((g) => g.code);
-    expect(codes).toEqual(expect.arrayContaining(['deliverable_niet_geleverd', 'geen_draaidag', 'draaidag_open', 'afsluittaak_open']));
-    const r = await owner.client.rpc('close_project', { p_project: projectId });
-    expect(r.error?.message).toContain('nog niet operationeel');
-    // levenscyclus kan niet rechtstreeks worden omzeild
-    const direct = await owner.client.from('project').update({ lifecycle: 'operationeel_afgerond' }).eq('id', projectId).select();
-    expect(direct.error).toBeTruthy();
-  });
-
-  it('sluit af zodra alles geleverd is; administratie blijft apart open', async () => {
-    // draaidag uitgevoerd + back-up
-    must(await owner.client.from('shoot_day').update({ status: 'uitgevoerd' }).eq('id', shootDayId).select());
-    let gates = must(await owner.client.rpc('close_gates', { p_project: projectId })) as { code: string }[];
-    expect(gates.map((g) => g.code)).toContain('backup_ontbreekt');
-    const sd = must(await owner.client.from('shoot_day').update({ backup_confirmed_at: new Date().toISOString() }).eq('id', shootDayId).select().single());
-    expect(sd.backup_confirmed_by).toBe(owner.id);
-    expect(sd.executed_confirmed_by).toBe(owner.id);
-
-    // één output vervalt met reden, de rest wordt goedgekeurd en geleverd
-    expect((await owner.client.from('deliverable').update({ status: 'vervallen' }).eq('id', deliverables[5].id).select()).error).toBeTruthy();
-    must(await owner.client.from('deliverable').update({ status: 'vervallen', status_reason: 'In overleg geschrapt' }).eq('id', deliverables[5].id).select());
-    for (const d of deliverables.slice(0, 5)) {
-      const v = must(await owner.client.rpc('add_version', { p_deliverable: d.id, p_file_ref: 'eindversie' })) as string;
-      if (d.id === deliverables[2].id) must(await owner.client.rpc('set_required_version', { p_deliverable: d.id, p_version: v }));
-      must(await owner.client.rpc('register_approval', { p_version: v, p_approved_by_name: 'Klant', p_approved_at: new Date().toISOString(), p_evidence: 'Akkoordmail' }));
-      must(await owner.client.rpc('mark_delivered', { p_deliverable: d.id }));
-    }
-    const { data: tasks } = await owner.client.from('task').select('id').eq('project_id', projectId).eq('required_for_close', true);
-    for (const t of tasks!) must(await owner.client.from('task').update({ status: 'klaar' }).eq('id', t.id).select());
-
-    gates = must(await owner.client.rpc('close_gates', { p_project: projectId })) as { code: string; severity: string }[];
-    expect(gates.filter((g: any) => g.severity === 'blokkade')).toEqual([]);
-    must(await owner.client.rpc('close_project', { p_project: projectId }));
-    const p = must(await owner.client.from('project').select('lifecycle,admin_status,closed_by').eq('id', projectId).single());
-    expect(p).toEqual({ lifecycle: 'operationeel_afgerond', admin_status: 'niet_beoordeeld', closed_by: owner.id });
-
-    expect((await owner.client.rpc('set_admin_status', { p_project: projectId, p_status: 'afgerond', p_factuur: true, p_betaling: false, p_freelancers: true, p_overig: true })).error).toBeTruthy();
-    must(await owner.client.rpc('set_admin_status', { p_project: projectId, p_status: 'open', p_factuur: true, p_betaling: false, p_freelancers: true, p_overig: true }));
-  });
-
-  it('een leeg filmproject sluit niet vanzelf', async () => {
-    const id = must(await createProject(owner.client, null, 'Leeg')) as string;
-    must(await owner.client.rpc('set_project_lifecycle', { p_project: id, p_lifecycle: 'actief', p_reason: 'test' }));
-    expect((await owner.client.rpc('close_project', { p_project: id })).error?.message).toContain('geen overeengekomen deliverables');
-  });
-});
+// Proef 8/11/12 (operationeel afsluiten) is vervangen door de faselogica: zie tests/volledig.test.ts.
 
 describe('proef 15 — rechten worden op de server afgedwongen', () => {
   let p2: string;
@@ -223,31 +167,22 @@ describe('proef 15 — rechten worden op de server afgedwongen', () => {
     expect((await anon.rpc('create_project', { p_ws: wsId, p_company: 'moviemates', p_year: 2026, p_name: 'x' })).error).toBeTruthy();
   });
 
-  it('stagiair zonder projectlidmaatschap ziet het project niet, ook niet via directe ID', async () => {
-    expect(must(await stagiair.client.from('project').select('id').eq('id', p2))).toEqual([]);
-    expect(must(await stagiair.client.from('project_overview').select('id'))).toEqual([]);
-    expect(must(await stagiair.client.from('task').select('id').eq('id', ownTask))).toEqual([]);
-    expect((await stagiair.client.rpc('close_gates', { p_project: p2 })).error).toBeTruthy();
-  });
-
-  it('stagiair als projectlid ziet alleen eigen toegewezen taken en mag alleen de status wijzigen', async () => {
-    must(await owner.client.rpc('add_project_member', { p_project: p2, p_user: stagiair.id }));
+  it('stagiair ziet alle projecten en taken (rechtenmatrix §3), maar geen financiële mijlpalen', async () => {
+    expect(must(await stagiair.client.from('project').select('id').eq('id', p2))).toHaveLength(1);
     const tasks = must(await stagiair.client.from('task').select('id').eq('project_id', p2));
-    expect(tasks.map((t: { id: string }) => t.id)).toEqual([ownTask]);
-    must(await stagiair.client.from('task').update({ status: 'bezig' }).eq('id', ownTask).select());
-    const r = await stagiair.client.from('task').update({ title: 'Anders' }).eq('id', ownTask).select();
-    expect(r.error?.message).toContain('alleen de status');
-    const r2 = await stagiair.client.from('task').update({ status: 'klaar' }).eq('id', otherTask).select();
-    expect(r2.data ?? []).toEqual([]);
+    expect(tasks.map((t: { id: string }) => t.id).sort()).toEqual([ownTask, otherTask].sort());
+    const ms = must(await stagiair.client.from('milestone').select('kind').eq('project_id', p2));
+    expect(ms.map((m: { kind: string }) => m.kind).sort()).toEqual(['debriefing', 'offerte_akkoord']);
   });
 
-  it('stagiair kan geen projectinhoud wijzigen, geen akkoord registreren en niet afsluiten', async () => {
-    const r = await stagiair.client.from('project').update({ name: 'Gekaapt' }).eq('id', p2).select();
-    expect(r.data ?? []).toEqual([]);
-    expect((await stagiair.client.from('deliverable').insert({ project_id: p2, title: 'X' }).select()).error).toBeTruthy();
-    expect((await stagiair.client.rpc('close_project', { p_project: p2 })).error).toBeTruthy();
+  it('stagiair mag taken bewerken, maar niet verwijderen, goedkeuren, aanmaken of uitnodigen', async () => {
+    must(await stagiair.client.from('task').update({ status: 'bezig', title: 'Stills selecteren (bijgewerkt)' }).eq('id', ownTask).select());
+    expect((await stagiair.client.rpc('soft_delete', { p_kind: 'task', p_id: otherTask })).error).toBeTruthy();
+    expect((await stagiair.client.rpc('set_phase_manual', { p_project: p2, p_phase: 'productie', p_reason: 'x' })).error).toBeTruthy();
     expect((await stagiair.client.rpc('create_project', { p_ws: wsId, p_company: 'moviemates', p_year: 2026, p_name: 'x' })).error).toBeTruthy();
     expect((await stagiair.client.rpc('add_member', { p_ws: wsId, p_email: 'x@x.nl', p_role: 'admin', p_full_name: 'x' })).error).toBeTruthy();
+    expect((await stagiair.client.rpc('export_data', { p_ws: wsId })).error).toBeTruthy();
+    expect((await stagiair.client.rpc('issue_number', { p_ws: wsId, p_company: 'moviemates', p_year: 2026 })).error).toBeTruthy();
   });
 
   it('stagiair ziet geen contactgegevens en geen audit', async () => {
@@ -256,16 +191,13 @@ describe('proef 15 — rechten worden op de server afgedwongen', () => {
     expect(must(await owner.client.from('person_contact').select('*')).length).toBeGreaterThan(0);
   });
 
-  it('medewerker zonder projectlidmaatschap ziet het project niet; als lid wel', async () => {
-    expect(must(await medewerker.client.from('project').select('id').eq('id', p2))).toEqual([]);
-    must(await owner.client.rpc('add_project_member', { p_project: p2, p_user: medewerker.id }));
+  it('medewerker ziet alle projecten (rechtenmatrix §3)', async () => {
     expect(must(await medewerker.client.from('project').select('id').eq('id', p2))).toHaveLength(1);
-    expect(must(await medewerker.client.from('project').select('id').eq('id', projectId))).toEqual([]);
+    expect(must(await medewerker.client.from('project').select('id').eq('id', projectId))).toHaveLength(1);
   });
 
   it('ingetrokken lid verliest direct toegang, ook met bestaande sessie', async () => {
     const tijdelijk = await addMember(owner.client, wsId, 'tijdelijk', 'medewerker');
-    must(await owner.client.rpc('add_project_member', { p_project: p2, p_user: tijdelijk.id }));
     expect(must(await tijdelijk.client.from('project').select('id').eq('id', p2))).toHaveLength(1);
     must(await owner.client.rpc('revoke_member', { p_ws: wsId, p_user: tijdelijk.id }));
     expect(must(await tijdelijk.client.from('project').select('id').eq('id', p2))).toEqual([]);

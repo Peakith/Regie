@@ -22,9 +22,23 @@ export function adminClient(): SupabaseClient {
   return createClient(s.API_URL, s.SERVICE_ROLE_KEY, opts);
 }
 
-export function anonClient(): SupabaseClient {
+export function anonClient(headers?: Record<string, string>): SupabaseClient {
   const s = localStatus();
-  return createClient(s.API_URL, s.ANON_KEY, opts);
+  return createClient(s.API_URL, s.ANON_KEY, { ...opts, global: { headers: headers ?? {} } });
+}
+
+/** Datum (YYYY-MM-DD) in Europe/Amsterdam, met verschuiving in kalenderdagen. */
+export function dag(offset = 0): string {
+  const d = new Date(Date.now() + offset * 86_400_000);
+  return new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Amsterdam' }).format(d);
+}
+
+/** Werkdagen optellen (ma–vr), gelijk aan public.add_workdays. */
+export function werkdagen(iso: string, n: number): string {
+  const d = new Date(iso + 'T12:00:00Z');
+  let left = Math.abs(n); const step = Math.sign(n);
+  while (left > 0) { d.setUTCDate(d.getUTCDate() + step); const w = d.getUTCDay(); if (w !== 0 && w !== 6) left--; }
+  return d.toISOString().slice(0, 10);
 }
 
 export const RUN = Math.random().toString(36).slice(2, 8);
@@ -74,6 +88,25 @@ export function cleanupTestData() {
     create temp table t_ws as select id from public.workspace where organization_id in (select id from t_org);
     create temp table t_proj as select id from public.project where workspace_id in (select id from t_ws);
     set session_replication_role = replica;
+    delete from public.notification where workspace_id in (select id from t_ws) or user_id in (select id from auth.users where email like 'test-%@regie.test');
+    delete from public.automation_run where workspace_id in (select id from t_ws);
+    delete from public.integration_event where organization_id in (select id from t_org);
+    delete from public.api_key where organization_id in (select id from t_org);
+    delete from public.integration where organization_id in (select id from t_org);
+    delete from public.invitation where workspace_id in (select id from t_ws);
+    delete from public.milestone where project_id in (select id from t_proj);
+    delete from public.equipment_item where project_id in (select id from t_proj);
+    delete from public.decision where project_id in (select id from t_proj);
+    delete from public.comment where project_id in (select id from t_proj);
+    delete from public.external_link where project_id in (select id from t_proj);
+    delete from public.task_dependency where task_id in (select id from public.task where workspace_id in (select id from t_ws));
+    delete from public.task_list where workspace_id in (select id from t_ws);
+    delete from public.template_version where template_id in (select id from public.template where organization_id in (select id from t_org));
+    delete from public.template where organization_id in (select id from t_org);
+    delete from public.company_setting where organization_id in (select id from t_org);
+    delete from public.org_setting where organization_id in (select id from t_org);
+    delete from public.notification_pref where user_id in (select id from auth.users where email like 'test-%@regie.test');
+    delete from public.operation where user_id in (select id from auth.users where email like 'test-%@regie.test');
     delete from public.task_deliverable where task_id in (select id from public.task where workspace_id in (select id from t_ws));
     delete from public.task where workspace_id in (select id from t_ws);
     delete from public.approval where deliverable_id in (select id from public.deliverable where project_id in (select id from t_proj));
