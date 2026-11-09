@@ -1,18 +1,20 @@
 import { useState, type FormEvent } from 'react';
 import { supabase, errText, must } from '../../lib/supabase';
 import { useLoad } from '../../lib/useLoad';
-import { assignmentStatusLabel, datum, datumTijd, deliverableManualStatuses, deliverableStatusLabel, isVerlopen, vandaag } from '../../lib/labels';
+import { assignmentStatusLabel, datum, datumTijd, deliverableManualStatuses, deliverableStatusLabel, isVerlopen, vandaag, versionStatusLabel } from '../../lib/labels';
 import { Field, Loading, Msg, Pill } from '../../components/ui';
+import Opmerkingen from '../../components/Opmerkingen';
 import type { TabProps } from './types';
 
-type Version = { id: string; version_no: number; file_ref: string | null; note: string | null; created_at: string };
+type Version = { id: string; version_no: number; file_ref: string | null; note: string | null; created_at: string; status: string; feedback_round: number | null; submitted_at: string };
 type Approval = { id: string; version_id: string; approved_by_name: string; approved_at: string; evidence: string; source: string; registered_at: string; revoked_at: string | null; revoked_reason: string | null };
 type Assign = { id: string; person_id: string; status: string; role_label: string; person: { full_name: string } };
 type Deliv = {
   id: string; project_id: string; parent_id: string | null; title: string; kind: string | null; format: string | null; aspect_ratio: string | null;
   duration_text: string | null; language: string | null; channel: string | null; deadline: string | null; status: string;
   status_reason: string | null; scope: string; required_version_id: string | null; feedback_rounds_agreed: number | null;
-  delivered_at: string | null; revision: number;
+  delivered_at: string | null; revision: number; group_label: string | null; responsible_person_id: string | null;
+  is_extra_work: boolean; extra_work_note: string | null; final_link: string | null;
   deliverable_version: Version[]; approval: Approval[]; assignment: Assign[];
 };
 
@@ -25,7 +27,7 @@ export default function Deliverables(props: TabProps) {
       .select('*, deliverable_version!deliverable_version_deliverable_id_fkey(*), approval(*), assignment(id,person_id,status,role_label,person(full_name))')
       .eq('project_id', project.id).order('sort').order('created_at')) as Deliv[], [project.id]);
   const [open, setOpen] = useState<string | null>(null);
-  const [f, setF] = useState({ title: '', kind: '', deadline: '', parent: '' });
+  const [f, setF] = useState({ title: '', kind: '', deadline: '', parent: '', group: '', ratio: '', rounds: '' });
   const [err, setErr] = useState('');
 
   async function add(e: FormEvent) {
@@ -33,10 +35,11 @@ export default function Deliverables(props: TabProps) {
     setErr('');
     const { error } = await supabase.from('deliverable').insert({
       project_id: project.id, title: f.title, kind: f.kind || null, deadline: f.deadline || null,
-      parent_id: f.parent || null, sort: (data?.length ?? 0),
+      parent_id: f.parent || null, sort: (data?.length ?? 0), group_label: f.group || null, aspect_ratio: f.ratio || null,
+      feedback_rounds_agreed: f.rounds ? Number(f.rounds) : null,
     });
     if (error) return setErr(errText(error));
-    setF({ title: '', kind: '', deadline: '', parent: '' });
+    setF({ title: '', kind: '', deadline: '', parent: '', group: f.group, ratio: '', rounds: '' });
     await reload();
   }
 
@@ -46,8 +49,13 @@ export default function Deliverables(props: TabProps) {
     <>
       <Msg>{error}</Msg>
       {list.length === 0 && <div className="card muted">Nog geen deliverables. Leg iedere concrete output apart vast (bijv. Hero 1, Social 1–4), zodat editor, versie en akkoord per output te volgen zijn.</div>}
-      {list.map((d) => (
-        <DeliverableItem key={d.id} d={d} all={list} open={open === d.id} toggle={() => setOpen(open === d.id ? null : d.id)} reload={reload} {...props} />
+      {[...new Set(list.map((d) => d.group_label ?? ''))].map((g) => (
+        <div key={g}>
+          {g && <h3 style={{ marginTop: 12 }}>Groep: {g} <span className="small muted">({list.filter((d) => d.group_label === g && d.status === 'geleverd').length}/{list.filter((d) => d.group_label === g && d.status !== 'vervallen').length} opgeleverd)</span></h3>}
+          {list.filter((d) => (d.group_label ?? '') === g).map((d) => (
+            <DeliverableItem key={d.id} d={d} all={list} open={open === d.id} toggle={() => setOpen(open === d.id ? null : d.id)} reload={reload} {...props} />
+          ))}
+        </div>
       ))}
       {canEdit && (
         <form className="card" onSubmit={add}>
@@ -56,6 +64,9 @@ export default function Deliverables(props: TabProps) {
             <Field id="dt" label="Titel"><input id="dt" required value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} placeholder="bijv. Social 1 – 9:16" /></Field>
             <Field id="dk" label="Soort"><input id="dk" value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value })} placeholder="hero, social, aftermovie…" /></Field>
             <Field id="dd" label="Deadline"><input id="dd" type="date" value={f.deadline} onChange={(e) => setF({ ...f, deadline: e.target.value })} /></Field>
+            <Field id="dr" label="Beeldverhouding"><input id="dr" value={f.ratio} onChange={(e) => setF({ ...f, ratio: e.target.value })} placeholder="16:9, 9:16, 1:1…" /></Field>
+            <Field id="dfr" label="Afgesproken feedbackrondes"><input id="dfr" type="number" min={0} value={f.rounds} onChange={(e) => setF({ ...f, rounds: e.target.value })} /></Field>
+            <Field id="dg" label="Groep (optioneel)" hint="Bijv. Socialpakket; elke variant blijft een eigen deliverable."><input id="dg" value={f.group} onChange={(e) => setF({ ...f, group: e.target.value })} /></Field>
             <Field id="dp" label="Variant van (optioneel)">
               <select id="dp" value={f.parent} onChange={(e) => setF({ ...f, parent: e.target.value })}>
                 <option value="">Geen, zelfstandig product</option>
@@ -71,13 +82,16 @@ export default function Deliverables(props: TabProps) {
   );
 }
 
-function DeliverableItem({ d, all, open, toggle, reload, canEdit, canManage, people }: TabProps & { d: Deliv; all: Deliv[]; open: boolean; toggle: () => void; reload: () => Promise<void> }) {
+function DeliverableItem({ d, all, open, toggle, reload, canEdit, canManage, canApprove, people, project }: TabProps & { d: Deliv; all: Deliv[]; open: boolean; toggle: () => void; reload: () => Promise<void> }) {
   const [err, setErr] = useState('');
   const versions = [...d.deliverable_version].sort((a, b) => b.version_no - a.version_no);
   const required = versions.find((v) => v.id === d.required_version_id);
   const editors = d.assignment.filter((a) => ['optie', 'bevestigd'].includes(a.status));
   const parent = all.find((x) => x.id === d.parent_id);
   const validApprovalOnRequired = d.approval.find((a) => a.version_id === d.required_version_id && !a.revoked_at);
+  const latestRound = versions[0]?.feedback_round ?? 0;
+  const meerwerk = d.feedback_rounds_agreed != null && latestRound > d.feedback_rounds_agreed;
+  const responsible = people.find((p) => p.id === d.responsible_person_id)?.full_name;
 
   async function run(fn: () => PromiseLike<{ error: unknown }>) {
     setErr('');
@@ -106,11 +120,15 @@ function DeliverableItem({ d, all, open, toggle, reload, canEdit, canManage, peo
           <div className="small muted" style={{ marginTop: 4 }}>
             Editor: {editors.length ? editors.map((a) => `${a.person.full_name} (${assignmentStatusLabel[a.status].toLowerCase()})`).join(', ') : <Pill tone="warn">Geen editor</Pill>}
             {' · '}Deadline: {isVerlopen(d.deadline) && !['geleverd', 'vervallen'].includes(d.status) ? <Pill tone="danger">{datum(d.deadline)}</Pill> : datum(d.deadline)}
-            {' · '}Versie: {required ? `v${required.version_no} vereist` : versions.length ? `v${versions[0].version_no} (laatste)` : 'nog geen'}
+            {' · '}Versie: {required ? `v${required.version_no} (${versionStatusLabel[required.status]})` : versions.length ? `v${versions[0].version_no} (laatste)` : 'nog geen'}
+            {d.feedback_rounds_agreed != null && <> · Ronde {latestRound}/{d.feedback_rounds_agreed}</>}
+            {responsible && <> · Verantwoordelijke: {responsible}</>}
           </div>
         </div>
         <div className="row">
           {d.scope !== 'overeengekomen' && <Pill tone="warn">Scope: {d.scope}</Pill>}
+          {meerwerk && !d.is_extra_work && <Pill tone="warn">Mogelijk meerwerk</Pill>}
+          {d.is_extra_work && <Pill tone="warn">Meerwerk</Pill>}
           <Pill tone={tone(d.status)}>{deliverableStatusLabel[d.status]}</Pill>
         </div>
       </div>
@@ -127,7 +145,21 @@ function DeliverableItem({ d, all, open, toggle, reload, canEdit, canManage, peo
               <span className="hint">Goedgekeurd en Geleverd gaan via akkoord en levering hieronder.</span>
             </div>
           )}
-          <Specs d={d} canEdit={canEdit} reload={reload} />
+          {meerwerk && !d.is_extra_work && canApprove && (
+            <Msg kind="warn">
+              Feedbackronde {latestRound} terwijl er {d.feedback_rounds_agreed} zijn afgesproken. Dit is een signaal; of het meerwerk is, beslis jij.{' '}
+              <button onClick={async () => {
+                const note = prompt('Omschrijving meerwerk (wordt een besluit in het project)');
+                if (!note?.trim()) return;
+                await run(async () => {
+                  const r1 = await supabase.from('deliverable').update({ is_extra_work: true, extra_work_note: note }).eq('id', d.id).select();
+                  if (r1.error) return r1;
+                  return supabase.rpc('record_decision', { p_project: project.id, p_kind: 'meerwerk', p_subject: `Meerwerk: ${d.title}`, p_taken_by: null, p_decided_on: vandaag(), p_evidence: note, p_deliverable: d.id });
+                });
+              }}>Markeer als meerwerk</button>
+            </Msg>
+          )}
+          <Specs d={d} canEdit={canEdit} reload={reload} people={people} />
 
           <h3>Editors</h3>
           <EditorAssign d={d} people={people} canEdit={canEdit} reload={reload} />
@@ -140,10 +172,17 @@ function DeliverableItem({ d, all, open, toggle, reload, canEdit, canManage, peo
               <div key={v.id} className="card" style={{ marginBottom: 8, padding: 12 }}>
                 <div className="row between">
                   <div>
-                    <strong>v{v.version_no}</strong> {v.id === d.required_version_id && <Pill tone="info">Vereiste opleverversie</Pill>}
-                    <div className="small muted">{v.file_ref ?? 'Geen link'}{v.note ? ` · ${v.note}` : ''} · {datumTijd(v.created_at)}</div>
+                    <strong>v{v.version_no}</strong> <Pill tone={v.status === 'goedgekeurd' ? 'ok' : v.status === 'feedback_ontvangen' ? 'warn' : v.status === 'vervangen' ? undefined : 'info'}>{versionStatusLabel[v.status]}</Pill>
+                    {v.id === d.required_version_id && <> <Pill>Actuele versie</Pill></>}
+                    <div className="small muted">
+                      {v.file_ref ? (/^https?:\/\//.test(v.file_ref) ? <a href={v.file_ref} target="_blank" rel="noreferrer">{v.file_ref}</a> : v.file_ref) : 'Geen link'}
+                      {v.note ? ` · ${v.note}` : ''} · ronde {v.feedback_round ?? '—'} · {datumTijd(v.submitted_at ?? v.created_at)}
+                    </div>
                   </div>
-                  {canManage && v.id !== d.required_version_id && !['vervallen'].includes(d.status) && (
+                  {canEdit && v.status === 'in_review' && (
+                    <button onClick={() => run(() => supabase.rpc('set_version_status', { p_version: v.id, p_status: 'feedback_ontvangen' }))}>Feedback ontvangen</button>
+                  )}
+                  {canManage && v.id !== d.required_version_id && !['vervallen'].includes(d.status) && !['goedgekeurd', 'vervangen'].includes(v.status) && (
                     <button onClick={() => { if (confirm(`v${v.version_no} de vereiste opleverversie maken? Een akkoord op een andere versie geldt dan niet meer voor de oplevering.`)) void run(() => supabase.rpc('set_required_version', { p_deliverable: d.id, p_version: v.id })); }}>
                       Maak vereiste versie
                     </button>
@@ -153,7 +192,7 @@ function DeliverableItem({ d, all, open, toggle, reload, canEdit, canManage, peo
                   <div key={a.id} className="small" style={{ marginTop: 6 }}>
                     {a.revoked_at ? <Pill>Ingetrokken</Pill> : <Pill tone="ok">Akkoord</Pill>}{' '}
                     door {a.approved_by_name} op {datumTijd(a.approved_at)} · bewijs: {a.evidence}
-                    <span className="muted"> · geregistreerd door medewerker {datumTijd(a.registered_at)}</span>
+                    <span className="muted"> · {a.source === 'reviewtool' ? 'uit de reviewtool' : 'vastgelegd door medewerker'} {datumTijd(a.registered_at)}</span>
                     {a.revoked_at && <span className="muted"> · ingetrokken: {a.revoked_reason}</span>}
                     {canManage && !a.revoked_at && (
                       <> · <button className="link" onClick={() => { const r = prompt('Reden voor intrekken (verplicht)'); if (r?.trim()) void run(() => supabase.rpc('revoke_approval', { p_approval: a.id, p_reason: r })); }}>intrekken</button></>
@@ -164,21 +203,27 @@ function DeliverableItem({ d, all, open, toggle, reload, canEdit, canManage, peo
             );
           })}
           {canEdit && d.status !== 'vervallen' && d.status !== 'geleverd' && <AddVersion d={d} reload={reload} />}
-          {canManage && versions.length > 0 && !['vervallen', 'geleverd', 'goedgekeurd'].includes(d.status) && (
+          {canApprove && versions.length > 0 && !['vervallen', 'geleverd', 'goedgekeurd'].includes(d.status) && (
             <RegisterApproval version={required ?? versions[0]} isLatest={(required ?? versions[0]).id === versions[0].id} reload={reload} />
           )}
-          {canManage && d.status === 'goedgekeurd' && validApprovalOnRequired && (
-            <button className="primary" onClick={() => run(() => supabase.rpc('mark_delivered', { p_deliverable: d.id }))}>Markeer als geleverd</button>
+          {canApprove && d.status === 'goedgekeurd' && validApprovalOnRequired && (
+            <button className="primary" onClick={() => run(() => supabase.rpc('mark_delivered', { p_deliverable: d.id }))}>Markeer als opgeleverd</button>
           )}
-          {d.status === 'geleverd' && <Msg kind="ok">Geleverd op {datumTijd(d.delivered_at)} (v{required?.version_no}).</Msg>}
+          {d.status === 'geleverd' && <Msg kind="ok">Opgeleverd op {datumTijd(d.delivered_at)} (v{required?.version_no}).{d.final_link && <> <a href={d.final_link} target="_blank" rel="noreferrer">Definitieve versie</a></>}</Msg>}
+          <h3>Opmerkingen</h3>
+          <Opmerkingen projectId={project.id} subjectType="deliverable" subjectId={d.id} canEdit={canEdit} />
+          {canManage && (
+            <div><button className="danger" onClick={() => { if (confirm(`"${d.title}" naar de prullenbak? Herstellen kan 30 dagen.`)) void run(() => supabase.rpc('soft_delete', { p_kind: 'deliverable', p_id: d.id })); }}>Verwijderen</button></div>
+          )}
         </div>
       )}
     </div>
   );
 }
 
-function Specs({ d, canEdit, reload }: { d: Deliv; canEdit: boolean; reload: () => Promise<void> }) {
+function Specs({ d, canEdit, reload, people }: { d: Deliv; canEdit: boolean; reload: () => Promise<void>; people: TabProps['people'] }) {
   const [f, setF] = useState({
+    group: d.group_label ?? '', responsible: d.responsible_person_id ?? '', final: d.final_link ?? '',
     title: d.title, format: d.format ?? '', aspect_ratio: d.aspect_ratio ?? '', duration_text: d.duration_text ?? '',
     language: d.language ?? '', channel: d.channel ?? '', deadline: d.deadline ?? '', feedback: d.feedback_rounds_agreed?.toString() ?? '',
     scope: d.scope,
@@ -193,6 +238,7 @@ function Specs({ d, canEdit, reload }: { d: Deliv; canEdit: boolean; reload: () 
       title: f.title, format: f.format || null, aspect_ratio: f.aspect_ratio || null, duration_text: f.duration_text || null,
       language: f.language || null, channel: f.channel || null, deadline: f.deadline || null,
       feedback_rounds_agreed: f.feedback ? Number(f.feedback) : null, scope: f.scope,
+      group_label: f.group || null, responsible_person_id: f.responsible || null, final_link: f.final || null,
     }).eq('id', d.id).eq('revision', d.revision).select('id');
     if (error) return setMsg({ kind: 'error', text: errText(error) });
     if (!data?.length) return setMsg({ kind: 'warn', text: 'Iemand anders heeft deze deliverable intussen gewijzigd. Je wijzigingen staan nog in het formulier; laad opnieuw om de nieuwste stand te zien.' });
@@ -211,6 +257,14 @@ function Specs({ d, canEdit, reload }: { d: Deliv; canEdit: boolean; reload: () 
           {field('channel', 'Kanaal')}
           {field('deadline', 'Deadline', 'date')}
           {field('feedback', 'Afgesproken feedbackrondes', 'number')}
+          {field('group', 'Groep')}
+          {field('final', 'Definitieve link (oplevering)')}
+          <Field id={`rp-${d.id}`} label="Verantwoordelijke">
+            <select id={`rp-${d.id}`} value={f.responsible} onChange={(e) => setF({ ...f, responsible: e.target.value })}>
+              <option value="">Projectverantwoordelijke</option>
+              {people.map((p) => <option key={p.id} value={p.id}>{p.full_name}</option>)}
+            </select>
+          </Field>
           <Field id={`sc-${d.id}`} label="Scope">
             <select id={`sc-${d.id}`} value={f.scope} onChange={(e) => setF({ ...f, scope: e.target.value })}>
               <option value="overeengekomen">Overeengekomen</option>
@@ -219,7 +273,7 @@ function Specs({ d, canEdit, reload }: { d: Deliv; canEdit: boolean; reload: () 
             </select>
           </Field>
         </div>
-        <p className="hint">Onbekende waarden laat je leeg. Alleen overeengekomen deliverables tellen mee voor afsluiten.</p>
+        <p className="hint">Onbekende waarden laat je leeg. Alle niet-geannuleerde deliverables moeten zijn opgeleverd voordat het project naar Afronding gaat.</p>
         {msg && <Msg kind={msg.kind}>{msg.text}</Msg>}
         {canEdit && <button>Specificaties opslaan</button>}
       </fieldset>
@@ -300,7 +354,7 @@ function RegisterApproval({ version, isLatest, reload }: { version: Version; isL
   const [show, setShow] = useState(false);
   const [f, setF] = useState({ name: '', date: vandaag(), evidence: '' });
   const [err, setErr] = useState('');
-  if (!show) return <button onClick={() => setShow(true)}>Klantakkoord registreren op v{version.version_no}</button>;
+  if (!show) return <button onClick={() => setShow(true)}>Goedkeuring vastleggen op v{version.version_no}</button>;
   async function submit(e: FormEvent) {
     e.preventDefault();
     const { error } = await supabase.rpc('register_approval', {
@@ -312,9 +366,9 @@ function RegisterApproval({ version, isLatest, reload }: { version: Version; isL
   }
   return (
     <form className="card" onSubmit={submit} style={{ padding: 12 }}>
-      <h3>Klantakkoord op v{version.version_no} registreren</h3>
+      <h3>Goedkeuring vastleggen op v{version.version_no}</h3>
       {!isLatest && <Msg kind="warn">Er is een nieuwere versie dan de vereiste versie. Maak eerst de juiste versie vereist.</Msg>}
-      <p className="hint">Dit wordt vastgelegd als "akkoord geregistreerd door medewerker", met jouw naam en tijdstip. Het akkoord geldt alleen voor v{version.version_no}.</p>
+      <p className="hint">Dit wordt een onveranderlijk besluit, met jouw naam en tijdstip. De goedkeuring geldt alleen voor v{version.version_no}; een latere versie wordt nooit automatisch goedgekeurd.</p>
       <div className="grid2">
         <Field id="an" label="Akkoord gegeven door"><input id="an" required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="Naam contactpersoon klant" /></Field>
         <Field id="ad" label="Datum akkoord"><input id="ad" type="date" required value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} /></Field>
@@ -323,7 +377,7 @@ function RegisterApproval({ version, isLatest, reload }: { version: Version; isL
         <input id="ae" required value={f.evidence} onChange={(e) => setF({ ...f, evidence: e.target.value })} />
       </Field>
       <Msg>{err}</Msg>
-      <div className="row"><button className="primary">Akkoord registreren</button><button type="button" onClick={() => setShow(false)}>Annuleren</button></div>
+      <div className="row"><button className="primary">Goedkeuring vastleggen</button><button type="button" onClick={() => setShow(false)}>Annuleren</button></div>
     </form>
   );
 }

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { supabase, must } from '../lib/supabase';
 import { canCreateProjects, useCtx } from '../lib/session';
 import { useLoad } from '../lib/useLoad';
-import { bedrijfLabel, datum, isVerlopen, lifecycleLabel } from '../lib/labels';
+import { bedrijfLabel, datum, isVerlopen, lifecycleLabel, phaseLabel, riskLabel, riskTone } from '../lib/labels';
 import { Loading, Msg, Pill } from '../components/ui';
 
 type Row = {
@@ -11,6 +11,7 @@ type Row = {
   lifecycle: string; archived: boolean; manager_name: string | null; editors: string[]; crew_count: number;
   deliverables_total: number; deliverables_delivered: number; deliverables_without_editor: number;
   next_shoot_date: string | null; next_deadline: string | null;
+  phase: string; phase_mode: string; is_concept: boolean; risk: string | null; manager_person_id: string | null;
 };
 
 export default function Projecten() {
@@ -27,9 +28,10 @@ export default function Projecten() {
   const rows = (data ?? []).filter((r) => {
     if (bedrijf && r.company !== bedrijf) return false;
     if (jaar && String(r.year) !== jaar) return false;
-    if (status === 'lopend' && (r.archived || !['actief', 'gepauzeerd'].includes(r.lifecycle))) return false;
+    if (status === 'lopend' && (r.archived || r.lifecycle === 'geannuleerd')) return false;
     if (status === 'gearchiveerd' && !r.archived) return false;
-    if (!['lopend', 'alle', 'gearchiveerd'].includes(status) && (r.lifecycle !== status || r.archived)) return false;
+    if (status.startsWith('fase:') && (r.phase !== status.slice(5) || r.archived)) return false;
+    if (status.startsWith('lc:') && (r.lifecycle !== status.slice(3))) return false;
     const hay = `${r.number ?? ''} ${r.name} ${r.client_name ?? ''}`.toLowerCase();
     return !q || hay.includes(q.toLowerCase()) || hay.replace(/\s/g, '').includes(q.toLowerCase().replace(/\s/g, ''));
   });
@@ -47,9 +49,11 @@ export default function Projecten() {
           {Object.entries(bedrijfLabel).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </select>
         <select aria-label="Status" value={status} onChange={(e) => setStatus(e.target.value)} style={{ maxWidth: 300 }}>
-          <option value="lopend">Lopend (actief en gepauzeerd)</option>
-          <option value="alle">Alle statussen, inclusief archief</option>
-          {Object.entries(lifecycleLabel).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          <option value="lopend">Lopend (niet gearchiveerd of geannuleerd)</option>
+          <option value="alle">Alles, inclusief archief</option>
+          {Object.entries(phaseLabel).map(([k, v]) => <option key={k} value={`fase:${k}`}>Fase: {v}</option>)}
+          <option value="lc:gepauzeerd">Gepauzeerd</option>
+          <option value="lc:geannuleerd">Geannuleerd</option>
           <option value="gearchiveerd">Gearchiveerd</option>
         </select>
         <select aria-label="Registerjaar" value={jaar} onChange={(e) => setJaar(e.target.value)} style={{ maxWidth: 140 }}>
@@ -63,8 +67,8 @@ export default function Projecten() {
       ) : (
         <table className="list">
           <thead><tr>
-            <th>Nummer</th><th>Project</th><th>Bedrijf</th><th>Status</th><th>Editors</th><th>Crew</th>
-            <th>Volgende draaidag</th><th>Eerstvolgende deadline</th><th>Geleverd</th>
+            <th>Nummer</th><th>Project</th><th>Bedrijf</th><th>Fase</th><th>Risico</th><th>Editors</th><th>Crew</th>
+            <th>Volgende draaidag</th><th>Eerstvolgende deadline</th><th>Opgeleverd</th>
           </tr></thead>
           <tbody>
             {rows.map((r) => (
@@ -73,9 +77,12 @@ export default function Projecten() {
                 <td data-label="Project"><Link to={`/projecten/${r.id}`}>{r.name}</Link><div className="small muted">{r.client_name ?? 'Geen klant'} · {r.year}</div></td>
                 <td data-label="Bedrijf">{bedrijfLabel[r.company]}</td>
                 <td data-label="Status">
-                  <Pill tone={r.lifecycle === 'actief' ? 'info' : r.lifecycle === 'operationeel_afgerond' ? 'ok' : undefined}>{lifecycleLabel[r.lifecycle]}</Pill>
+                  {r.is_concept ? <Pill tone="warn">Concept</Pill> : <Pill tone="info">{phaseLabel[r.phase]}</Pill>}
+                  {r.phase_mode === 'handmatig' && <> <Pill>handmatig</Pill></>}
+                  {r.lifecycle !== 'actief' && r.lifecycle !== 'operationeel_afgerond' && <> <Pill>{lifecycleLabel[r.lifecycle]}</Pill></>}
                   {r.archived && <> <Pill>Archief</Pill></>}
                 </td>
+                <td data-label="Risico">{r.risk && !r.archived ? <Pill tone={riskTone(r.risk)}>{riskLabel[r.risk]}</Pill> : '—'}</td>
                 <td data-label="Editors">
                   {r.editors.length ? r.editors.join(', ') : <span className="muted">—</span>}
                   {r.deliverables_without_editor > 0 && <div><Pill tone="warn">{r.deliverables_without_editor} zonder editor</Pill></div>}
@@ -85,7 +92,7 @@ export default function Projecten() {
                 <td data-label="Eerstvolgende deadline">
                   {isVerlopen(r.next_deadline) ? <Pill tone="danger">Verlopen: {datum(r.next_deadline)}</Pill> : datum(r.next_deadline)}
                 </td>
-                <td data-label="Geleverd">{r.deliverables_total ? `${r.deliverables_delivered}/${r.deliverables_total}` : '—'}</td>
+                <td data-label="Opgeleverd">{r.deliverables_total ? `${r.deliverables_delivered}/${r.deliverables_total}` : '—'}</td>
               </tr>
             ))}
           </tbody>

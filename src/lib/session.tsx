@@ -11,6 +11,7 @@ type State = {
   session: Session | null;
   ctx: Ctx | null;
   orgExists: boolean;
+  needsMfa: boolean;
   loading: boolean;
   error: string;
   refresh: () => Promise<void>;
@@ -22,6 +23,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [ctx, setCtx] = useState<Ctx | null>(null);
   const [orgExists, setOrgExists] = useState(true);
+  const [needsMfa, setNeedsMfa] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -29,7 +31,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setLoading(true);
     setError('');
     try {
-      if (!s) { setCtx(null); return; }
+      if (!s) { setCtx(null); setNeedsMfa(false); return; }
+      const aal = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+      const mfa = !aal.error && aal.data.nextLevel === 'aal2' && aal.data.currentLevel !== 'aal2';
+      setNeedsMfa(mfa);
+      if (mfa) { setCtx(null); return; }
       const [c, o] = await Promise.all([supabase.rpc('my_context'), supabase.rpc('organization_exists')]);
       if (c.error) throw c.error;
       if (o.error) throw o.error;
@@ -46,13 +52,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     supabase.auth.getSession().then(({ data }) => { setSession(data.session); void load(data.session); });
     const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
       setSession(s);
-      if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') void load(s);
+      if (event === 'SIGNED_OUT') { try { localStorage.removeItem('regie-offline'); } catch { /* */ } }
+      if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'MFA_CHALLENGE_VERIFIED') void load(s);
     });
     return () => sub.subscription.unsubscribe();
   }, []);
 
   return (
-    <SessionContext.Provider value={{ session, ctx, orgExists, loading, error, refresh: () => load(session) }}>
+    <SessionContext.Provider value={{ session, ctx, orgExists, needsMfa, loading, error, refresh: async () => { const { data } = await supabase.auth.getSession(); setSession(data.session); await load(data.session); } }}>
       {children}
     </SessionContext.Provider>
   );
@@ -71,6 +78,11 @@ export function useCtx(): Ctx {
   return ctx;
 }
 
+// Interfacehulpen volgens de rechtenmatrix (§3). De database dwingt dezelfde regels af; dit verbergt alleen knoppen.
 export const isOwnerOrAdmin = (role: string) => role === 'eigenaar' || role === 'admin';
-export const canCreateProjects = (role: string) => ['eigenaar', 'admin', 'projectmanager'].includes(role);
-export const canEditPeople = (role: string) => ['eigenaar', 'admin', 'projectmanager', 'medewerker'].includes(role);
+export const isManager = (role: string) => ['eigenaar', 'admin', 'projectmanager'].includes(role);
+export const hasFinance = isManager;
+export const canCreateProjects = (role: string) => ['eigenaar', 'admin', 'projectmanager', 'medewerker'].includes(role);
+export const canApprove = canCreateProjects;
+export const canEditPeople = canCreateProjects;
+export const isInternal = (role: string) => ['eigenaar', 'admin', 'projectmanager', 'medewerker', 'stagiair'].includes(role);

@@ -3,6 +3,7 @@
  * Nummers verwijzen naar de acceptatiecriteria in de masterprompt (§16) en de automatiseringen (§9).
  * Geen mocks: iedere aanroep gaat als echte gebruiker (of als externe tool met API-sleutel) via de API.
  */
+import { createRequire } from 'node:module';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { addMember, adminClient, anonClient, cleanupTestData, createTestOrg, createUser, dag, must, werkdagen } from './helpers';
@@ -11,6 +12,7 @@ type U = { id: string; email: string; client: SupabaseClient };
 let wsId: string; let orgId: string;
 let owner: U; let pm: U; let stagiair: U; let medewerker: U;
 const admin = () => adminClient();
+const require = createRequire(import.meta.url);
 const tick = async () => must(await admin().rpc('tick_workspace', { p_ws: wsId }));
 
 async function nummer(client: SupabaseClient, company = 'studio_brutaal', extra: Record<string, unknown> = {}) {
@@ -467,5 +469,37 @@ describe('lijsten, prullenbak, meldingen en export', () => {
   it('offline-momentopname bevat draaidagen van de komende 7 dagen', async () => {
     const snap = must(await owner.client.rpc('offline_snapshot'));
     expect(snap.shoot_days.every((s: any) => s.date >= dag(0) && s.date <= dag(7))).toBe(true);
+  });
+});
+
+describe('§3 tweestapsverificatie wordt servermatig afgedwongen', () => {
+  function totp(secret: string): string {
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+    let bits = '';
+    for (const ch of secret.replace(/=+$/, '').toUpperCase()) bits += alphabet.indexOf(ch).toString(2).padStart(5, '0');
+    const key = Buffer.from(bits.match(/.{8}/g)!.map((b) => parseInt(b, 2)));
+    const counter = Buffer.alloc(8);
+    counter.writeBigUInt64BE(BigInt(Math.floor(Date.now() / 30_000)));
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const h = require('node:crypto').createHmac('sha1', key).update(counter).digest();
+    const o = h[h.length - 1] & 0xf;
+    return String(((h.readUInt32BE(o) & 0x7fffffff) % 1_000_000)).padStart(6, '0');
+  }
+
+  it('met een tweede factor geeft een sessie zonder code (aal1) geen gegevens', async () => {
+    const u = await addMember(owner.client, wsId, 'mfa', 'projectmanager') as U;
+    expect(must(await u.client.rpc('my_context'))).toHaveLength(1);
+    const { data: enroll, error } = await u.client.auth.mfa.enroll({ factorType: 'totp' });
+    if (error) throw error;
+    must(await u.client.auth.mfa.challengeAndVerify({ factorId: enroll.id, code: totp(enroll.totp.secret) }));
+    await leegProject('MFA-test');
+    expect(must(await u.client.rpc('my_context'))).toHaveLength(1); // aal2: toegang
+    expect(must(await u.client.from('project').select('id').limit(1))).toHaveLength(1);
+
+    const fresh = anonClient();
+    must(await fresh.auth.signInWithPassword({ email: u.email, password: 'test-wachtwoord-123!' }));
+    expect(must(await fresh.rpc('my_context'))).toEqual([]);
+    expect(must(await fresh.from('project').select('id'))).toEqual([]);
+    expect((await fresh.rpc('dashboard', { p_ws: wsId })).error).toBeTruthy();
   });
 });

@@ -859,3 +859,62 @@ begin
     raise notice 'pg_cron niet beschikbaar: fases en meldingen worden bijgewerkt bij het laden van het dashboard.';
   end;
 end $$;
+
+-- Audit-log ook voor projectmanagers (rol met financiële rechten); medewerker en stagiair zien het niet.
+drop policy sel on public.audit_log;
+create policy sel on public.audit_log for select to authenticated
+  using (workspace_id is not null and public.my_role(workspace_id) in ('eigenaar','admin','projectmanager'));
+
+-- Persoonstype (§4): intern, freelancer, klantcontact of overig; klantcontact hoort bij een klant.
+alter table public.person
+  add column kind text not null default 'overig' check (kind in ('intern','freelancer','klantcontact','overig')),
+  add column client_org_id uuid references public.client_org(id);
+update public.person set kind = 'intern' where user_id is not null;
+
+-- ───────────────────────── Tweestapsverificatie (§3) ─────────────────────────
+-- Wie een tweede factor heeft ingesteld, krijgt alleen toegang met een sessie op niveau aal2.
+-- Zo kan een gestolen wachtwoord alleen geen toegang geven. Afgedwongen in de database, niet alleen in de app.
+create function public.mfa_ok() returns boolean
+language sql stable security definer set search_path = public, pg_temp as $$
+  select coalesce(auth.jwt()->>'aal', 'aal1') = 'aal2'
+      or not exists (select 1 from auth.mfa_factors f where f.user_id = auth.uid() and f.status = 'verified')
+$$;
+
+create or replace function public.my_role(p_ws uuid) returns public.app_role
+language sql stable security definer set search_path = public, pg_temp as $$
+  select role from membership
+  where workspace_id = p_ws and user_id = auth.uid() and revoked_at is null and public.mfa_ok()
+$$;
+
+create or replace function public.org_has_role(p_org uuid, p_roles public.app_role[]) returns boolean
+language sql stable security definer set search_path = public, pg_temp as $$
+  select public.mfa_ok() and exists (
+    select 1 from membership m join workspace w on w.id = m.workspace_id
+    where w.organization_id = p_org and m.user_id = auth.uid()
+      and m.revoked_at is null and m.role = any(p_roles))
+$$;
+
+create or replace function public.my_context()
+returns table(workspace_id uuid, workspace_name text, organization_id uuid, role public.app_role, person_id uuid, person_name text)
+language sql stable security definer set search_path = public, pg_temp as $$
+  select w.id, w.name, w.organization_id, m.role, pe.id, pe.full_name
+  from membership m join workspace w on w.id = m.workspace_id
+  left join person pe on pe.organization_id = w.organization_id and pe.user_id = m.user_id
+  where m.user_id = auth.uid() and m.revoked_at is null and public.mfa_ok()
+  order by w.created_at
+$$;
+
+create or replace function public.my_person_ids() returns uuid[]
+language sql stable security definer set search_path = public, pg_temp as $$
+  select coalesce(array_agg(pe.id), '{}') from person pe
+  join workspace w on w.organization_id = pe.organization_id
+  join membership m on m.workspace_id = w.id and m.user_id = auth.uid() and m.revoked_at is null
+  where pe.user_id = auth.uid() and public.mfa_ok()
+$$;
+
+-- Eigenaar zonder tweede factor: zichtbaar maken in de app (instellen is verplicht volgens §3).
+create function public.owner_without_mfa(p_ws uuid) returns boolean
+language sql stable security definer set search_path = public, pg_temp as $$
+  select my_role(p_ws) = 'eigenaar' and not exists (select 1 from auth.mfa_factors f where f.user_id = auth.uid() and f.status = 'verified')
+$$;
+grant execute on function public.mfa_ok(), public.owner_without_mfa(uuid) to authenticated;

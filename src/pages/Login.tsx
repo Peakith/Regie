@@ -35,13 +35,13 @@ export default function Login() {
         <div className="row between">
           <button className="primary" disabled={busy}>{mode === 'in' ? 'Inloggen' : 'Account aanmaken'}</button>
           <button type="button" className="link" onClick={() => setMode(mode === 'in' ? 'nieuw' : 'in')}>
-            {mode === 'in' ? 'Nieuw account (lokaal)' : 'Ik heb al een account'}
+            {mode === 'in' ? 'Account aanmaken' : 'Ik heb al een account'}
           </button>
         </div>
         {mode === 'nieuw' && (
           <p className="hint">
-            Lokale testomgeving: hier kun je zelf een account aanmaken. Een nieuw account krijgt pas toegang nadat de eigenaar het heeft toegevoegd.
-            In de online versie vervangen uitnodigingen deze knop (fase 3).
+            Een nieuw account krijgt pas toegang met een uitnodigingslink van de eigenaar. Gebruik het e-mailadres waarop je bent uitgenodigd
+            en open daarna de uitnodigingslink opnieuw.
           </p>
         )}
       </form>
